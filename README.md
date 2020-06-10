@@ -348,7 +348,7 @@ Invalidating the cache after deployment will refresh the site with new changes.
 
 ### Possible Approaches
 
-- Use a CloudWatch event to monitor for a successful event and trigger a lambda function to invalidate the cache.
+- Use a CloudWatch event to monitor for a successful CodePipeline deployment event and trigger a lambda function to invalidate the cache.
 - Add an action after the deploy stage to invoke a lambda to invalidate the cache
 - Potentially other options?!
 
