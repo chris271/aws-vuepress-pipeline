@@ -16,7 +16,7 @@ Sample project to create an AWS CodePipeline pipeline to deploy a static VuePres
 1.  [Clone this repo](https://github.com/chris271/aws-vuepress-pipeline)
 2.  Run `yarn install` or `npm install`
 3.  Run `yarn run dev` or `npm run dev` to run the VuePress site locally.
-3.  Run `yarn run test` or `npm run dev` to run the unit tests located in `docs/.vuepress/components/__tests__`.
+3.  Run `yarn run test` or `npm run test` to run the unit tests located in `docs/.vuepress/components/__tests__`.
 
 ## CodePipeline CloudFormation Deployment
 
@@ -292,6 +292,54 @@ artifacts:
 ![Parameters](images/CfnOutputs.PNG "Parameters")
 
 - To run the pipeline you will need to make a commit to the CodeCommit or Github repo attached to the Source stage of the pipeline.
+
+- Navigate to the root of your locally cloned git repository and run the following commands for the corresponding source type after replace values in <>.
+
+**CodeCommit Source**
+```shell script
+git remote set-url origin https://git-codecommit.<AWS_REGION>.amazonaws.com/v1/repos/<CodeCommitRepoName>
+git push
+```
+
+**Github Source**
+```shell script
+git remote set-url origin https://github.com/<GitHubOwner>/GitHubRepoName>
+git push
+```
+
+- After the pipeline kicks off the test stage will run first as below.
+
+![Kickoff](images/PipelineKickoff.PNG "Kickoff")
+
+- You can click details on the TestVue action to navigate to the CodeBuild log for the build. The test stage will lint and run unit tests which you can see the output of here.
+
+![Test Build](images/TestBuild.PNG "Test Build")
+
+![Test Success](images/TestSuccess.PNG "Test Success")
+
+- If the test stage is successful, then the pipeline will move onto the Build stage. Similarly you can click the details link to view the log.
+
+![Build Details](images/BuildDetails.PNG "Build Details")
+
+![Build Success](images/BuildSuccess.PNG "Build Success")
+
+- Once the Build stage is successful, you will be required to manually approve the build deployment on the Approval stage. You may add any comments to the approval and even check the current code in the repository before approval.
+
+![Approval Pending](images/ApprovalPending.PNG "Approval Pending")
+
+![Approve It](images/ApproveIt.PNG "Approve It")
+
+- When the approval is accepted the build artifact from the build stage will be deployed to the S3 bucket backed by the CloudFront distribution created by the CloudFormation stack. You can find the URL for this distribution in the CloudFront console or in the Outputs of the CloudFormation stack.
+
+![Deployment](images/DeploymentSuccess.PNG "Deployment")
+
+![Parameters](images/CfnOutputs.PNG "Parameters")
+
+- If everything was setup correctly navigating to the CloudFrontDomainName link should load the VuePress sample site as below.
+
+![Vue PressS ite](images/VuePressSite.PNG "Vue Press Site")
+
+- Feel free to mess around with any of the CloudFormation resources in the template or the VuePress source code!
 
 ## Helpful links
 
