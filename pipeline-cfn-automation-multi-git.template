@@ -253,7 +253,7 @@ Resources:
       Name: !Sub "${ProjectName}-Test"
       ServiceRole: !GetAtt CodeBuildRole.Arn
       Source:
-        BuildSpec: buildspec.yaml
+        BuildSpec: buildspec-test.yaml
         Type: CODEPIPELINE
 
   #This CodeBuild project is invoked when a pull request occurs on the specified branch.
