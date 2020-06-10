@@ -20,6 +20,7 @@ Metadata:
           - GitHubOwner
           - GitHubBranchName
           - GitHubRepositoryName
+          - GitHubOauthToken
     ParameterLabels:
       CodeRepoSourceType:
         default: "Repository Type"
@@ -33,6 +34,8 @@ Metadata:
         default: "Github Repository Branch"
       GitHubRepositoryName:
         default: "Github Repository Name"
+      GitHubOauthToken:
+        default: "Github OAuth Token"
 
 #CloudFormation Parameters: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/parameters-section-structure.html
 Parameters:
@@ -71,6 +74,11 @@ Parameters:
     Description:
       The GitHub repository name within the specified account.
     Type: String
+  GitHubOauthToken:
+    Description:
+      A GitHub OAuth token created by the repository owner.
+    Type: String
+    NoEcho: true
 
 #CloudFormation Conditions: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/conditions-section-structure.html
 Conditions:
