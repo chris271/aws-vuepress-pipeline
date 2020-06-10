@@ -74,7 +74,7 @@ Parameters:
     Description:
       The GitHub repository name within the specified account.
     Type: String
-  GitHubOauthToken:
+  GitHubOAuthToken:
     Description:
       A GitHub OAuth token created by the repository owner with 'admin:repo_hook' permission.
     Type: String
@@ -88,35 +88,6 @@ Conditions:
     !Equals [!Ref CodeRepoSourceType, "CodeCommit"]
 
 Resources:
-
-  ###################################
-  # S3 Resources
-  ###################################
-
-  #S3 Bucket to store pipeline artifacts.
-  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket.html
-  PipelineBucket:
-    DeletionPolicy: Retain
-    Type: AWS::S3::Bucket
-
-  #S3 Bucket to deploy build artifacts.
-  ArtifactBucket:
-    DeletionPolicy: Retain
-    Type: AWS::S3::Bucket
-
-  #S3 Bucket for CloudFront OAI
-  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-policy.html
-  ArtifactBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref ArtifactBucket
-      PolicyDocument:
-        Statement:
-          - Action: "s3:Get*"
-            Effect: Allow
-            Resource: !Sub "arn:aws:s3:::${ArtifactBucket}/*"
-            Principal:
-              CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
 
   ###################################
   # CodePipeline Resources
@@ -164,7 +135,7 @@ Resources:
                   Owner: !Ref GitHubOwner
                   Repo: !Ref GitHubRepositoryName
                   Branch: !Ref GitHubBranchName
-                  OAuthToken: '{{resolve:secretsmanager:github/oauth:SecretString:github-oauth}}'
+                  OAuthToken: !Ref GitHubOAuthToken
                   PollForSourceChanges: true
                 RunOrder: 1
         #Run build using 'buildspec-test.yaml' to lint and run unit tests for current source
@@ -226,6 +197,109 @@ Resources:
               InputArtifacts:
                 - Name: "BuildOutput"
               RunOrder: 1
+
+  ###################################
+  # CodeCommit Resources
+  ###################################
+
+  #CodeCommit repository created if RepoSourceType is set to CodeCommit
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codecommit-repository.html
+  CodeCommitRepository:
+    Type: AWS::CodeCommit::Repository
+    DeletionPolicy: Retain
+    Condition: CodeCommitRepo
+    Properties:
+      RepositoryName: !Ref ProjectName
+      RepositoryDescription: !Sub "CodeCommit Repo for ${ProjectName}"
+      Triggers:
+        - Name: Email
+          DestinationArn: !Ref PipelineSNSTopic
+          Branches:
+            - master
+          Events:
+            - all
+
+  ###################################
+  # CodeBuild Resources
+  ###################################
+
+  #This CodeBuild project is used in the pipeline during the build stage
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codebuild-project.html
+  PipelineCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:1.0"
+        Type: LINUX_CONTAINER
+      Name: !Sub "${ProjectName}-Build"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        BuildSpec: buildspec-build.yaml
+        Type: CODEPIPELINE
+
+  #This CodeBuild project is used in the pipeline during the test stage
+  PipelineCodeBuildTestProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:1.0"
+        Type: LINUX_CONTAINER
+      Name: !Sub "${ProjectName}-Test"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        BuildSpec: buildspec.yaml
+        Type: CODEPIPELINE
+
+  #This CodeBuild project is invoked when a pull request occurs on the specified branch.
+  CodeBuildProjectPR:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:1.0"
+        Type: LINUX_CONTAINER
+      Name: !Sub "${ProjectName}-PR"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Triggers: !If
+        - CodeCommitRepo
+        - !Ref AWS::NoValue
+        - FilterGroups:
+            - - Pattern: PULL_REQUEST_CREATED,PULL_REQUEST_UPDATED,PULL_REQUEST_REOPENED
+                Type: EVENT
+          Webhook: true
+      Source:
+        BuildSpec: buildspec-pr.yaml
+        Type: !If
+          - CodeCommitRepo
+          - CODECOMMIT
+          - GITHUB
+        Location: !If
+          - CodeCommitRepo
+          - !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${ProjectName}"
+          - !Sub "https://github.com/${GitHubOwner}/${GitHubRepositoryName}.git"
+        Auth: !If
+          - CodeCommitRepo
+          - !Ref AWS::NoValue
+          - Resource: !Ref CodeBuildGitHubCredential
+            Type: OAUTH
+
+  #Credentials for CodeBuild to access GitHub repository.
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codebuild-sourcecredential.html
+  CodeBuildGitHubCredential:
+    Type: AWS::CodeBuild::SourceCredential
+    Condition: GitHubRepo
+    Properties:
+      ServerType: GITHUB
+      AuthType: PERSONAL_ACCESS_TOKEN
+      Token: !Ref GitHubOAuthToken
 
   ###################################
   # SNS Resources
@@ -376,109 +450,6 @@ Resources:
           - !Ref AWS::NoValue
         - Arn: !Ref PipelineSNSTopic
           Id: !Sub "${AWS::StackName}-SNS"
-
-  ###################################
-  # CodeCommit Resources
-  ###################################
-
-  #CodeCommit repository created if RepoSourceType is set to CodeCommit
-  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codecommit-repository.html
-  CodeCommitRepository:
-    Type: AWS::CodeCommit::Repository
-    DeletionPolicy: Retain
-    Condition: CodeCommitRepo
-    Properties:
-      RepositoryName: !Ref ProjectName
-      RepositoryDescription: !Sub "CodeCommit Repo for ${ProjectName}"
-      Triggers:
-        - Name: Email
-          DestinationArn: !Ref PipelineSNSTopic
-          Branches:
-            - master
-          Events:
-            - all
-
-  ###################################
-  # CodeBuild Resources
-  ###################################
-
-  #This CodeBuild project is used in the pipeline during the build stage
-  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codebuild-project.html
-  PipelineCodeBuildProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        ComputeType: "BUILD_GENERAL1_SMALL"
-        Image: "aws/codebuild/amazonlinux2-x86_64-standard:1.0"
-        Type: LINUX_CONTAINER
-      Name: !Sub "${ProjectName}-Build"
-      ServiceRole: !GetAtt CodeBuildRole.Arn
-      Source:
-        BuildSpec: buildspec-build.yaml
-        Type: CODEPIPELINE
-
-  #This CodeBuild project is used in the pipeline during the test stage
-  PipelineCodeBuildTestProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        ComputeType: "BUILD_GENERAL1_SMALL"
-        Image: "aws/codebuild/amazonlinux2-x86_64-standard:1.0"
-        Type: LINUX_CONTAINER
-      Name: !Sub "${ProjectName}-Test"
-      ServiceRole: !GetAtt CodeBuildRole.Arn
-      Source:
-        BuildSpec: buildspec.yaml
-        Type: CODEPIPELINE
-
-  #This CodeBuild project is invoked when a pull request occurs on the specified branch.
-  CodeBuildProjectPR:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Artifacts:
-        Type: NO_ARTIFACTS
-      Environment:
-        ComputeType: "BUILD_GENERAL1_SMALL"
-        Image: "aws/codebuild/amazonlinux2-x86_64-standard:1.0"
-        Type: LINUX_CONTAINER
-      Name: !Sub "${ProjectName}-PR"
-      ServiceRole: !GetAtt CodeBuildRole.Arn
-      Triggers: !If
-        - CodeCommitRepo
-        - !Ref AWS::NoValue
-        - FilterGroups:
-          - - Pattern: PULL_REQUEST_CREATED,PULL_REQUEST_UPDATED,PULL_REQUEST_REOPENED
-              Type: EVENT
-          Webhook: true
-      Source:
-        BuildSpec: buildspec-pr.yaml
-        Type: !If
-          - CodeCommitRepo
-          - CODECOMMIT
-          - GITHUB
-        Location: !If
-          - CodeCommitRepo
-          - !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${ProjectName}"
-          - !Sub "https://github.com/${GitHubOwner}/${GitHubRepositoryName}.git"
-        Auth: !If
-          - CodeCommitRepo
-          - !Ref AWS::NoValue
-          - Resource: !Ref CodeBuildGitHubCredential
-            Type: OAUTH
-
-  #Credentials for CodeBuild to access GitHub repository.
-  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codebuild-sourcecredential.html
-  CodeBuildGitHubCredential:
-    Type: AWS::CodeBuild::SourceCredential
-    Condition: GitHubRepo
-    Properties:
-      ServerType: GITHUB
-      AuthType: PERSONAL_ACCESS_TOKEN
-      Token: '{{resolve:secretsmanager:github/oauth:SecretString:github-oauth}}'
 
   ###################################
   # Lambda Resources
@@ -690,6 +661,35 @@ Resources:
                 Action:
                   - "codebuild:StartBuild"
                 Resource: !GetAtt CodeBuildProjectPR.Arn
+
+  ###################################
+  # S3 Resources
+  ###################################
+
+  #S3 Bucket to store pipeline artifacts.
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket.html
+  PipelineBucket:
+    DeletionPolicy: Retain
+    Type: AWS::S3::Bucket
+
+  #S3 Bucket to deploy build artifacts.
+  ArtifactBucket:
+    DeletionPolicy: Retain
+    Type: AWS::S3::Bucket
+
+  #S3 Bucket for CloudFront OAI
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-policy.html
+  ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Statement:
+          - Action: "s3:Get*"
+            Effect: Allow
+            Resource: !Sub "arn:aws:s3:::${ArtifactBucket}/*"
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
 
   ###################################
   # CloudFront Resources
