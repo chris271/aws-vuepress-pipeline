@@ -104,6 +104,20 @@ Resources:
     DeletionPolicy: Retain
     Type: AWS::S3::Bucket
 
+  #S3 Bucket for CloudFront OAI
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-policy.html
+  ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Statement:
+          - Action: "s3:Get*"
+            Effect: Allow
+            Resource: !Sub "arn:aws:s3:::${ArtifactBucket}/*"
+            Principal:
+              CanonicalUser: !GetAtt CloudFrontOriginAccessIdentity.S3CanonicalUserId
+
   ###################################
   # CodePipeline Resources
   ###################################
@@ -164,8 +178,6 @@ Resources:
                 Provider: CodeBuild
               InputArtifacts:
                 - Name: "RepoSource"
-              OutputArtifacts:
-                - Name: "BuildOutput"
               Configuration:
                 ProjectName: !Ref PipelineCodeBuildTestProject
               RunOrder: 1
@@ -481,7 +493,7 @@ Resources:
       Description: "Triggers And updates CodeCommit with information from PR's"
       Handler: "index.lambda_handler"
       MemorySize: 128
-      Role: !Ref CodeBuildPRLambdaRole
+      Role: !GetAtt CodeBuildPRLambdaRole.Arn
       Runtime: "python3.6"
       Timeout: 10
       Code:
@@ -679,6 +691,45 @@ Resources:
                   - "codebuild:StartBuild"
                 Resource: !GetAtt CodeBuildProjectPR.Arn
 
+  ###################################
+  # CloudFront Resources
+  ###################################
+
+  #CloudFront Distro to serve VuePress website
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cloudfront-distribution.html
+  CloudFrontS3Distro:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt ArtifactBucket.DomainName
+            Id: !Sub S3Origin-${ArtifactBucket}
+            S3OriginConfig:
+              OriginAccessIdentity: !Join ["", ["origin-access-identity/cloudfront/", !Ref CloudFrontOriginAccessIdentity]]
+        Enabled: 'true'
+        DefaultRootObject: index.html
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          TargetOriginId: !Sub S3Origin-${ArtifactBucket}
+          ForwardedValues:
+            QueryString: 'true'
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: "redirect-to-https"
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: 'true'
+
+  #CloudFront Origin Access Identity for S3 access
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cloudfront-cloudfrontoriginaccessidentity.html
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: "CloudFront S3 OAI"
+
 #CloudFormation Outputs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/outputs-section-structure.html
 Outputs:
   #Link to pipeline
@@ -695,3 +746,10 @@ Outputs:
       - !Sub "https://github.com/${GitHubOwner}/${GitHubRepositoryName}.git"
     Export:
       Name: "GitCloneURL"
+
+  #Link to CloudFront Distribution
+  CloudFrontDomainName:
+    Value:
+      !Sub "https://${CloudFrontS3Distro.DomainName}"
+    Export:
+      Name: "CloudFrontDomainName"
