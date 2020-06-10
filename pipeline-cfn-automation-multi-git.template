@@ -76,7 +76,7 @@ Parameters:
     Type: String
   GitHubOauthToken:
     Description:
-      A GitHub OAuth token created by the repository owner.
+      A GitHub OAuth token created by the repository owner with 'admin:repo_hook' permission.
     Type: String
     NoEcho: true
 
