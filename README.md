@@ -337,11 +337,26 @@ git push
 
 - If everything was setup correctly navigating to the CloudFrontDomainName link should load the VuePress sample site as below.
 
-![Vue PressS ite](images/VuePressSite.PNG "Vue Press Site")
+![Vue Press Site](images/VuePressSite.PNG "Vue Press Site")
 
 - Feel free to mess around with any of the CloudFormation resources in the template or the VuePress source code!
 
+## Challenge
+
+One possible improvement to this pipeline would be the ability to automatically invalidate the CloudFront cache after the deployment. 
+Invalidating the cache after deployment will refresh the site with new changes. 
+
+### Possible Approaches
+
+- Use a CloudWatch event to monitor for a successful event and trigger a lambda function to invalidate the cache.
+- Add an action after the deploy stage to invoke a lambda to invalidate the cache
+- Potentially other options?!
+
 ## Helpful links
+
+CodePipeline [tutorials](https://docs.aws.amazon.com/codepipeline/latest/userguide/tutorials.html).
+
+CloudFormation [dev resources](https://aws.amazon.com/cloudformation/resources/).
 
 This site is built on [VuePress](https://vuepress.vuejs.org/). Please see their [Guide](https://vuepress.vuejs.org/guide/) for more information on how it works. 
 
