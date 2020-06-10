@@ -15,7 +15,7 @@ Metadata:
           - ProjectName
       -
         Label:
-          default: "Github Required Properties (Leave these blank if CodeRepoSource is CodeCommit)"
+          default: "Github Required Properties (Leave these blank if Repository Type is CodeCommit)"
         Parameters:
           - GitHubOwner
           - GitHubBranchName
@@ -41,7 +41,7 @@ Parameters:
     Description:
       The repository type used for storing source code.
       Valid options are CodeCommit and GitHub.
-      CodeCommit Repository will be automatically Created.
+      CodeCommit Repository will be automatically created.
     Type: String
     AllowedValues:
       - GitHub
@@ -49,12 +49,12 @@ Parameters:
     Default: CodeCommit
   NotificationEndpoint:
     Description:
-      The Email address which you would like to send updates to about this Pipeline.
+      The email address which you would like to send updates to about this pipeline.
     Type: String
     Default: user@email.com
   ProjectName:
     Description:
-      The Name of the Project, This will propegate into CodeBuild, CodePipeline and CodeCommit (if chosen).
+      The name of this project. This will propegate into CodeBuild, CodePipeline and CodeCommit (if chosen).
     Type: String
     Default: CfnPipeline
 
@@ -145,6 +145,7 @@ Resources:
                   OAuthToken: '{{resolve:secretsmanager:github/oauth:SecretString:github-oauth}}'
                   PollForSourceChanges: true
                 RunOrder: 1
+        #Run build using 'buildspec-test.yaml' to lint and run unit tests for current source
         - Name: TestVue
           Actions:
             - Name: Validation
@@ -189,17 +190,19 @@ Resources:
                   - !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${ProjectName}"
                   - !Sub "https://github.com/${GitHubOwner}/${GitHubRepositoryName}.git"
                 CustomData: "Approval to deploy the built artifact to S3"
-        - Name: "Deploy"
+        - Name: DeployVue
           Actions:
-            - Name: "DeployTemplate"
+            - Name: "DeployVue"
               ActionTypeId:
                 Category: Deploy
                 Owner: AWS
                 Version: "1"
                 Provider: S3
               Configuration:
-                BucketName:	!Ref ArtifactBucket
-                Extract: true
+                {
+                  BucketName: !Ref ArtifactBucket,
+                  Extract: true
+                }
               InputArtifacts:
                 - Name: "BuildOutput"
               RunOrder: 1
