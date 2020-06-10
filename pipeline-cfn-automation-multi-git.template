@@ -141,7 +141,7 @@ Resources:
         #Run build using 'buildspec-test.yaml' to lint and run unit tests for current source
         - Name: TestVue
           Actions:
-            - Name: Validation
+            - Name: TestVue
               ActionTypeId:
                 Category: Test
                 Owner: AWS
@@ -154,7 +154,7 @@ Resources:
               RunOrder: 1
         - Name: BuildVue
           Actions:
-            - Name: Validation
+            - Name: BuildVue
               ActionTypeId:
                 Category: Build
                 Owner: AWS

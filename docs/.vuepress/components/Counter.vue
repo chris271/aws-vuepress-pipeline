@@ -13,25 +13,25 @@
   </div>
 </template>
 
-<script lang="ts">
-import { Component } from 'vue-property-decorator';
-import Vue from 'vue'
-
-@Component
-export default class Counter extends Vue {
-  private count: number = 0;
-  private amount: number = 1;
-
-  private increment() {
-    this.count += this.amount;
-  }
-
-  private decrement() {
-    this.count -= this.amount;
-  }
-
-  private reset() {
-    this.count = 0;
+<script>
+export default {
+  name: 'Counter',
+  data() {
+    return {
+      count: 0,
+      amount: 1
+    }
+  },
+  methods: {
+    increment() {
+      this.count += this.amount
+    },
+    decrement() {
+      this.count -= this.amount
+    },
+    reset() {
+      this.count = 0
+    }
   }
 }
 </script>
