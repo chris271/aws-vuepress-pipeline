@@ -1,0 +1,680 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Setup AWS resources for VuePress CI/CD
+
+#CloudFormation Metadata: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/metadata-section-structure.html
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: "Pipeline Required Properties"
+        Parameters:
+          - CodeRepoSourceType
+          - NotificationEndpoint
+          - ProjectName
+      -
+        Label:
+          default: "Github Required Properties (Leave these blank if CodeRepoSource is CodeCommit)"
+        Parameters:
+          - GitHubOwner
+          - GitHubBranchName
+          - GitHubRepositoryName
+    ParameterLabels:
+      CodeRepoSourceType:
+        default: "Repository Type"
+      NotificationEndpoint:
+        default: "Notification Endpoint"
+      ProjectName:
+        default: "Project Name"
+      GitHubOwner:
+        default: "Github Repository Owner"
+      GitHubBranchName:
+        default: "Github Repository Branch"
+      GitHubRepositoryName:
+        default: "Github Repository Name"
+
+#CloudFormation Parameters: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/parameters-section-structure.html
+Parameters:
+  #Pipeline Required Properties
+  CodeRepoSourceType:
+    Description:
+      The repository type used for storing source code.
+      Valid options are CodeCommit and GitHub.
+      CodeCommit Repository will be automatically Created.
+    Type: String
+    AllowedValues:
+      - GitHub
+      - CodeCommit
+    Default: CodeCommit
+  NotificationEndpoint:
+    Description:
+      The Email address which you would like to send updates to about this Pipeline.
+    Type: String
+    Default: user@email.com
+  ProjectName:
+    Description:
+      The Name of the Project, This will propegate into CodeBuild, CodePipeline and CodeCommit (if chosen).
+    Type: String
+    Default: CfnPipeline
+
+  #GitHub Required Properties
+  GitHubOwner:
+    Description:
+      The GitHub owner ID of the GitHub account.
+    Type: String
+  GitHubBranchName:
+    Description:
+      The main GitHub branch name of the branch in the specified repository.
+    Type: String
+  GitHubRepositoryName:
+    Description:
+      The GitHub repository name within the specified account.
+    Type: String
+
+#CloudFormation Conditions: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/conditions-section-structure.html
+Conditions:
+  GitHubRepo:
+    !Equals [!Ref CodeRepoSourceType, "GitHub"]
+  CodeCommitRepo:
+    !Equals [!Ref CodeRepoSourceType, "CodeCommit"]
+
+Resources:
+
+  ###################################
+  # S3 Resources
+  ###################################
+
+  #S3 Bucket to store pipeline artifacts.
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket.html
+  PipelineBucket:
+    DeletionPolicy: Retain
+    Type: AWS::S3::Bucket
+
+  #S3 Bucket to deploy build artifacts.
+  ArtifactBucket:
+    DeletionPolicy: Retain
+    Type: AWS::S3::Bucket
+
+  ###################################
+  # CodePipeline Resources
+  ###################################
+
+  #Main CodePipelinepipeline for the stack.
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codepipeline-pipeline.html
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PipelineBucket
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      Name: !Ref ProjectName
+      Stages:
+        #If CodeCommitRepo is true then use CodeCommit source, otherwise use a Github source
+        - !If
+          - CodeCommitRepo
+          - Name: CodeCommitSource
+            Actions:
+              - Name: SourceAction
+                ActionTypeId:
+                  Category: Source
+                  Owner: AWS
+                  Version: 1
+                  Provider: CodeCommit
+                OutputArtifacts:
+                  - Name: "RepoSource"
+                Configuration:
+                  BranchName: "master"
+                  RepositoryName: !Ref ProjectName
+                RunOrder: 1
+          - Name: GitHubSource
+            Actions:
+              - Name: SourceAction
+                ActionTypeId:
+                  Category: Source
+                  Owner: ThirdParty
+                  Version: 1
+                  Provider: GitHub
+                OutputArtifacts:
+                  - Name: "RepoSource"
+                Configuration:
+                  Owner: !Ref GitHubOwner
+                  Repo: !Ref GitHubRepositoryName
+                  Branch: !Ref GitHubBranchName
+                  OAuthToken: '{{resolve:secretsmanager:github/oauth:SecretString:github-oauth}}'
+                  PollForSourceChanges: true
+                RunOrder: 1
+        - Name: TestVue
+          Actions:
+            - Name: Validation
+              ActionTypeId:
+                Category: Test
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              InputArtifacts:
+                - Name: "RepoSource"
+              OutputArtifacts:
+                - Name: "BuildOutput"
+              Configuration:
+                ProjectName: !Ref PipelineCodeBuildTestProject
+              RunOrder: 1
+        - Name: BuildVue
+          Actions:
+            - Name: Validation
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              InputArtifacts:
+                - Name: "RepoSource"
+              OutputArtifacts:
+                - Name: "BuildOutput"
+              Configuration:
+                ProjectName: !Ref PipelineCodeBuildProject
+              RunOrder: 1
+        - Name: "Approval"
+          Actions:
+            - Name: "ApproveDeployment"
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Version: "1"
+                Provider: Manual
+              Configuration:
+                ExternalEntityLink: !If
+                  - CodeCommitRepo
+                  - !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${ProjectName}"
+                  - !Sub "https://github.com/${GitHubOwner}/${GitHubRepositoryName}.git"
+                CustomData: "Approval to deploy the built artifact to S3"
+        - Name: "Deploy"
+          Actions:
+            - Name: "DeployTemplate"
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: "1"
+                Provider: S3
+              Configuration:
+                BucketName:	!Ref ArtifactBucket
+                Extract: true
+              InputArtifacts:
+                - Name: "BuildOutput"
+              RunOrder: 1
+
+  ###################################
+  # SNS Resources
+  ###################################
+
+  #SNS topic for pipeline and PR test notifications.
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-sns-topic.html
+  PipelineSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint: !Ref NotificationEndpoint
+          Protocol: email
+
+  #SNS policy for allowing
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-sns-policy.html
+  PipelineSNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Id: !Sub "${AWS::StackName}-Topic"
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref PipelineSNSTopic
+      Topics:
+        - !Ref PipelineSNSTopic
+
+  ###################################
+  # CloudWatch Event Resources
+  ###################################
+
+  #Event to send email notifications to the chosen NotificationEndpoint
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-events-rule.html
+  PipelineEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Trigger notifications based on pipeline state changes"
+      EventPattern:
+        source:
+          - "aws.codepipeline"
+        detail-type:
+          - "CodePipeline Pipeline Execution State Change"
+        detail:
+          state:
+            - "FAILED"
+            - "STARTED"
+            - "SUCCEEDED"
+            - "RESUMED"
+            - "CANCELED"
+            - "SUPERSEDED"
+          pipeline:
+            - !Ref CodePipeline
+      State: "ENABLED"
+      Targets:
+        - Arn: !Ref PipelineSNSTopic
+          Id: !Sub "${AWS::StackName}"
+          InputTransformer:
+            InputTemplate: '"The pipeline <pipeline> from account <account> has <state> at <at>."'
+            InputPathsMap:
+              pipeline: "$.detail.pipeline"
+              state: "$.detail.state"
+              at: "$.time"
+              account: "$.account"
+
+  #Event to trigger CodeBuild on CodeCommit PRs
+  PipelineCodeCommitPREventRule:
+    Type: AWS::Events::Rule
+    Condition: CodeCommitRepo
+    Properties:
+      Description: "Trigger notifications based on CodeCommit PullRequests"
+      EventPattern:
+        source:
+          - "aws.codecommit"
+        detail-type:
+          - "CodeCommit Pull Request State Change"
+        resources:
+          - !GetAtt CodeCommitRepository.Arn
+        detail:
+          event:
+            - "pullRequestSourceBranchUpdated"
+            - "pullRequestCreated"
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt CodeBuildProjectPR.Arn
+          RoleArn: !GetAtt CWERole.Arn
+          Id: !Sub "${AWS::StackName}-PR-CW"
+          InputTransformer:
+            InputTemplate: |
+              {
+                "sourceVersion": <sourceVersion>,
+                "artifactsOverride": {"type": "NO_ARTIFACTS"},
+                "environmentVariablesOverride": [
+                   {
+                       "name": "pullRequestId",
+                       "value": <pullRequestId>,
+                       "type": "PLAINTEXT"
+                   },
+                   {
+                       "name": "repositoryName",
+                       "value": <repositoryName>,
+                       "type": "PLAINTEXT"
+                   },
+                   {
+                       "name": "sourceCommit",
+                       "value": <sourceCommit>,
+                       "type": "PLAINTEXT"
+                   },
+                   {
+                       "name": "destinationCommit",
+                       "value": <destinationCommit>,
+                       "type": "PLAINTEXT"
+                   }
+                ]
+              }
+            InputPathsMap:
+              sourceVersion: "$.detail.sourceCommit"
+              pullRequestId: "$.detail.pullRequestId"
+              repositoryName: "$.detail.repositoryNames[0]"
+              sourceCommit: "$.detail.sourceCommit"
+              destinationCommit: "$.detail.destinationCommit"
+
+  PipelineCodeBuildEventRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Description: "Triggers when builds fail/pass in CodeBuild"
+      EventPattern:
+        source:
+          - "aws.codebuild"
+        detail-type:
+          - "CodeBuild Build State Change"
+        detail:
+          build-status:
+            - "FAILED"
+            - "SUCCEEDED"
+          project-name:
+            - !Ref CodeBuildProjectPR
+      State: "ENABLED"
+      Targets:
+        - !If
+          - CodeCommitRepo
+          - Arn: !GetAtt CodeBuildPRResultFuction.Arn
+            Id: !Sub "${AWS::StackName}-Lambda"
+          - !Ref AWS::NoValue
+        - Arn: !Ref PipelineSNSTopic
+          Id: !Sub "${AWS::StackName}-SNS"
+
+  ###################################
+  # CodeCommit Resources
+  ###################################
+
+  #CodeCommit repository created if RepoSourceType is set to CodeCommit
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codecommit-repository.html
+  CodeCommitRepository:
+    Type: AWS::CodeCommit::Repository
+    DeletionPolicy: Retain
+    Condition: CodeCommitRepo
+    Properties:
+      RepositoryName: !Ref ProjectName
+      RepositoryDescription: !Sub "CodeCommit Repo for ${ProjectName}"
+      Triggers:
+        - Name: Email
+          DestinationArn: !Ref PipelineSNSTopic
+          Branches:
+            - master
+          Events:
+            - all
+
+  ###################################
+  # CodeBuild Resources
+  ###################################
+
+  #This CodeBuild project is used in the pipeline during the build stage
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codebuild-project.html
+  PipelineCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:1.0"
+        Type: LINUX_CONTAINER
+      Name: !Sub "${ProjectName}-Build"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        BuildSpec: buildspec-build.yaml
+        Type: CODEPIPELINE
+
+  #This CodeBuild project is used in the pipeline during the test stage
+  PipelineCodeBuildTestProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:1.0"
+        Type: LINUX_CONTAINER
+      Name: !Sub "${ProjectName}-Test"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        BuildSpec: buildspec.yaml
+        Type: CODEPIPELINE
+
+  #This CodeBuild project is invoked when a pull request occurs on the specified branch.
+  CodeBuildProjectPR:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:1.0"
+        Type: LINUX_CONTAINER
+      Name: !Sub "${ProjectName}-PR"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Triggers: !If
+        - CodeCommitRepo
+        - !Ref AWS::NoValue
+        - FilterGroups:
+          - - Pattern: PULL_REQUEST_CREATED,PULL_REQUEST_UPDATED,PULL_REQUEST_REOPENED
+              Type: EVENT
+          Webhook: true
+      Source:
+        BuildSpec: buildspec-pr.yaml
+        Type: !If
+          - CodeCommitRepo
+          - CODECOMMIT
+          - GITHUB
+        Location: !If
+          - CodeCommitRepo
+          - !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${ProjectName}"
+          - !Sub "https://github.com/${GitHubOwner}/${GitHubRepositoryName}.git"
+        Auth: !If
+          - CodeCommitRepo
+          - !Ref AWS::NoValue
+          - Resource: !Ref CodeBuildGitHubCredential
+            Type: OAUTH
+
+  #Credentials for CodeBuild to access GitHub repository.
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codebuild-sourcecredential.html
+  CodeBuildGitHubCredential:
+    Type: AWS::CodeBuild::SourceCredential
+    Condition: GitHubRepo
+    Properties:
+      ServerType: GITHUB
+      AuthType: PERSONAL_ACCESS_TOKEN
+      Token: '{{resolve:secretsmanager:github/oauth:SecretString:github-oauth}}'
+
+  ###################################
+  # Lambda Resources
+  ###################################
+
+  #Triggers And updates CodeCommit with information from PR's
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-lambda-function.html
+  CodeBuildPRResultFuction:
+    Type: AWS::Lambda::Function
+    Condition: CodeCommitRepo
+    Properties:
+      Description: "Triggers And updates CodeCommit with information from PR's"
+      Handler: "index.lambda_handler"
+      MemorySize: 128
+      Role: !Ref CodeBuildPRLambdaRole
+      Runtime: "python3.6"
+      Timeout: 10
+      Code:
+        ZipFile: |
+          import boto3
+
+          codecommit_client = boto3.client('codecommit')
+
+          def lambda_handler(event, context):
+              for item in event['detail']['additional-information']['environment']['environment-variables']:
+                  if item['name'] == 'pullRequestId': pull_request_id = item['value']
+                  if item['name'] == 'repositoryName': repository_name = item['value']
+                  if item['name'] == 'sourceCommit': before_commit_id = item['value']
+                  if item['name'] == 'destinationCommit': after_commit_id = item['value']
+              s3_prefix = 's3-{0}'.format(event['region']) if event['region'] != 'us-east-1' else 's3'
+              for phase in event['detail']['additional-information']['phases']:
+                  if phase.get('phase-status') == 'FAILED':
+                      badge = 'https://{0}.amazonaws.com/codefactory-{1}-prod-default-build-badges/failing.svg'.format(s3_prefix, event['region'])
+                      content = '![Failing]({0} "Failing") - See the [Logs]({1})'.format(badge, event['detail']['additional-information']['logs']['deep-link'])
+                      break
+                  else:
+                      badge = 'https://{0}.amazonaws.com/codefactory-{1}-prod-default-build-badges/passing.svg'.format(s3_prefix, event['region'])
+                      content = '![Passing]({0} "Passing") - See the [Logs]({1})'.format(badge, event['detail']['additional-information']['logs']['deep-link'])
+
+              codecommit_client.post_comment_for_pull_request(
+                pullRequestId = pull_request_id,
+                repositoryName = repository_name,
+                beforeCommitId = before_commit_id,
+                afterCommitId = after_commit_id,
+                content = content
+              )
+
+  #CloudWatch event permission to trigger lambda function.
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-lambda-permission.html
+  CodeBuildEventPermissionToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Condition: CodeCommitRepo
+    Properties:
+      FunctionName: !Ref CodeBuildPRResultFuction
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt PipelineCodeBuildEventRule.Arn
+
+  ###################################
+  # IAM Resources
+  ###################################
+
+  #IAM role for Lambda function to post comments on CodeCommit PRs
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-iam-role.html
+  CodeBuildPRLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: CodeCommitRepo
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "lambda.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "AWS-Lambda-PR-Service-Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "logs:GetLogEvents"
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - "codecommit:PostCommentForPullRequest"
+                Resource: !GetAtt CodeCommitRepository.Arn
+
+  #IAM role for CodePipeline to perform the required actions.
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "codepipeline.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "AWS-CodePipeline-Service-Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "codebuild:StartBuild"
+                  - "codebuild:BatchGetBuilds"
+                  - "codebuild:StopBuild"
+                Resource: !GetAtt PipelineCodeBuildProject.Arn
+              - Effect: "Allow"
+                Action:
+                  - "codecommit:GetBranch"
+                  - "codecommit:GetCommit"
+                  - "codecommit:UploadArchive"
+                  - "codecommit:GetUploadArchiveStatus"
+                  - "codecommit:CancelUploadArchive"
+                Resource: !GetAtt CodeCommitRepository.Arn
+              - Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:PutObjectAcl"
+                  - "s3:GetObject"
+                  - "s3:GetObjectAcl"
+                Resource:
+                  - !Sub "arn:aws:s3:::${PipelineBucket}/*"
+                  - !Sub "arn:aws:s3:::${ArtifactBucket}/*"
+              - Effect: "Allow"
+                Action:
+                  - "s3:GetBucketLocation"
+                Resource:
+                  - !Sub "arn:aws:s3:::${PipelineBucket}"
+                  - !Sub "arn:aws:s3:::${ArtifactBucket}"
+
+  #IAM role for CodeBuild to perform the required actions.
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          Effect: Allow
+          Principal:
+            Service: codebuild.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+        - PolicyName: "AWS-CodeBuild-Service-Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "logs:*"
+                  - "cloudformation:ValidateTemplate"
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - "codecommit:GetBranch"
+                  - "codecommit:GetCommit"
+                  - "codecommit:UploadArchive"
+                  - "codecommit:GetUploadArchiveStatus"
+                  - "codecommit:CancelUploadArchive"
+                Resource: !GetAtt CodeCommitRepository.Arn
+              - Effect: "Allow"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:PutObjectAcl"
+                  - "s3:GetObject"
+                  - "s3:GetObjectAcl"
+                Resource: !Sub "arn:aws:s3:::${PipelineBucket}/*"
+              - Effect: "Allow"
+                Action:
+                  - "s3:GetBucketLocation"
+                Resource: !Sub "arn:aws:s3:::${PipelineBucket}"
+
+  #IAM role for CloudWatch events to run CodeBuild on PRs
+  CWERole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "events.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies:
+        - PolicyName: "AWS-Lambda-PR-Policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "codebuild:StartBuild"
+                Resource: !GetAtt CodeBuildProjectPR.Arn
+
+#CloudFormation Outputs: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/outputs-section-structure.html
+Outputs:
+  #Link to pipeline
+  MainCICDPipeline:
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/codesuite/codepipeline/pipelines/${CodePipeline}/view"
+    Export:
+      Name: "MainCICDPipeline"
+
+  #Link to repository
+  GitCloneURL:
+    Value: !If
+      - CodeCommitRepo
+      - !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${ProjectName}"
+      - !Sub "https://github.com/${GitHubOwner}/${GitHubRepositoryName}.git"
+    Export:
+      Name: "GitCloneURL"

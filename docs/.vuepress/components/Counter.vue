@@ -1,6 +1,6 @@
 <template>
   <div class="counter">
-    <p class="counter-count">{{ count }}</p>
+    <p class="counter-count" id="counter-count">{{ count }}</p>
     <div class="counter-actions">
       <button class="counter-button" @click="increment">Add</button>
       <button class="counter-button" @click="decrement">Subtract</button>
@@ -13,25 +13,25 @@
   </div>
 </template>
 
-<script>
-export default {
-  name: 'Counter',
-  data() {
-    return {
-      count: 0,
-      amount: 1
-    }
-  },
-  methods: {
-    increment() {
-      this.count += this.amount
-    },
-    decrement() {
-      this.count -= this.amount
-    },
-    reset() {
-      this.count = 0
-    }
+<script lang="ts">
+import { Component } from 'vue-property-decorator';
+import Vue from 'vue'
+
+@Component
+export default class Counter extends Vue {
+  private count: number = 0;
+  private amount: number = 1;
+
+  private increment() {
+    this.count += this.amount;
+  }
+
+  private decrement() {
+    this.count -= this.amount;
+  }
+
+  private reset() {
+    this.count = 0;
   }
 }
 </script>
