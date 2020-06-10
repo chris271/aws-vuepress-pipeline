@@ -80,6 +80,10 @@ CodePipeline:
       ...
 ```
 
+- The deployed pipeline will have 5 stages "Source", "Test", "Build", "Approval", and "Deploy" as you can see below.
+
+![Pipeline](images/PipelineStages.PNG "Pipeline")
+
 - The source stage is conditional based on the selected "Repository Type" parameter.
 
 ```yaml
@@ -157,7 +161,7 @@ phases:
 
 ```
 
-- The test stage definition appears as below in the pipeline definition.
+- The test stage definition appears as below in the pipeline definition. This stage has an input from the "RepoSource" artifact which comes from the Source stage.
 
 ```yaml
 #Run build using 'buildspec-test.yaml' to lint and run unit tests for current source
@@ -176,17 +180,118 @@ phases:
       RunOrder: 1
 ```
 
+- The build stage will use the PipelineCodeBuildProject build project and utilize the 'buildspec-build.yaml' as below.  
+
+```yaml
+  #This CodeBuild project is used in the pipeline during the build stage
+  #Props Link: https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codebuild-project.html
+  PipelineCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: "BUILD_GENERAL1_SMALL"
+        Image: "aws/codebuild/amazonlinux2-x86_64-standard:1.0"
+        Type: LINUX_CONTAINER
+      Name: !Sub "${ProjectName}-Build"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Source:
+        BuildSpec: buildspec-build.yaml
+        Type: CODEPIPELINE
+```
+
+- This buildspec will have CodeBuild build the VuePress project and output the resulting build files.  
+
+```yaml
+# Buildspec Reference: https://docs.aws.amazon.com/codebuild/latest/userguide/build-spec-ref.html
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 10
+  build:
+    commands:
+      - npm install
+      - npm run build
+      - mkdir dist
+      - cp -a docs/.vuepress/dist/* dist/
+
+artifacts:
+  files:
+    - "**/*"
+  discard-paths: no
+  base-directory: dist
+```
+
+- The build stage definition appears as below in the pipeline definition. This stage has an input from the "RepoSource" artifact from the Source stage and an ouput called "BuildOutput" which will be used in the Deploy stage.
+
+```yaml
+- Name: BuildVue
+  Actions:
+    - Name: BuildVue
+      ActionTypeId:
+        Category: Build
+        Owner: AWS
+        Version: 1
+        Provider: CodeBuild
+      InputArtifacts:
+        - Name: "RepoSource"
+      OutputArtifacts:
+        - Name: "BuildOutput"
+      Configuration:
+        ProjectName: !Ref PipelineCodeBuildProject
+      RunOrder: 1
+```
+
+- The Approval stage appears as below and will require the user to manually review the stage before moving to the Deploy stage.
+
+```yaml
+- Name: "Approval"
+  Actions:
+    - Name: "ApproveDeployment"
+      ActionTypeId:
+        Category: Approval
+        Owner: AWS
+        Version: "1"
+        Provider: Manual
+      Configuration:
+        ExternalEntityLink: !If
+          - CodeCommitRepo
+          - !Sub "https://git-codecommit.${AWS::Region}.amazonaws.com/v1/repos/${ProjectName}"
+          - !Sub "https://github.com/${GitHubOwner}/${GitHubRepositoryName}.git"
+        CustomData: "Approval to deploy the built artifact to S3"
+```
+
+- The Deploy stage will finally deploy the "BuildOutput" artifact to S3. CloudFront will pick up the changes to the bucket and refresh the VuePress site when deployed.
+
+```yaml
+- Name: DeployVue
+  Actions:
+    - Name: "DeployVue"
+      ActionTypeId:
+        Category: Deploy
+        Owner: AWS
+        Version: "1"
+        Provider: S3
+      Configuration:
+        {
+          BucketName: !Ref ArtifactBucket,
+          Extract: true
+        }
+      InputArtifacts:
+        - Name: "BuildOutput"
+      RunOrder: 1
+```
+
 ### Running the Pipeline
 
 - When the stack finishes creation navigate to the CloudFormation stack "Outputs" tab and click the link for "MainCICDPipeline".  
 
 ![Parameters](images/CfnOutputs.PNG "Parameters")
 
-- The deployed pipeline will have 5 steps "Source", "Test", "Build", "Approval", and "Deploy" as you can see below.
-
-![Parameters](images/CfnOutputs.PNG "Parameters")
-
-- The different stages are
+- To run the pipeline you will need to make a commit to the CodeCommit or Github repo attached to the Source stage of the pipeline.
 
 ## Helpful links
 
