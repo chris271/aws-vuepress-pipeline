@@ -11,10 +11,10 @@ phases:
       - npm run build
       - mkdir dist
       - cp -a docs/.vuepress/dist/* dist/
-      - cd dist/
 
 artifacts:
   files:
     - "**/*"
   discard-paths: no
+  base-directory: dist
 
