@@ -9,9 +9,12 @@ phases:
     commands:
       - npm install
       - npm run build
+      - mkdir dist
+      - cp -a docs/.vuepress/dist/* dist/
+      - cd dist/
 
 artifacts:
   files:
-    - "docs/.vuepress/dist/*"
+    - "**/*"
   discard-paths: no
 
