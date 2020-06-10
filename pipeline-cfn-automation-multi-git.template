@@ -585,14 +585,17 @@ Resources:
                   - "codebuild:BatchGetBuilds"
                   - "codebuild:StopBuild"
                 Resource: !GetAtt PipelineCodeBuildProject.Arn
-              - Effect: "Allow"
-                Action:
-                  - "codecommit:GetBranch"
-                  - "codecommit:GetCommit"
-                  - "codecommit:UploadArchive"
-                  - "codecommit:GetUploadArchiveStatus"
-                  - "codecommit:CancelUploadArchive"
-                Resource: !GetAtt CodeCommitRepository.Arn
+              - !If
+                - CodeCommitRepo
+                - Effect: "Allow"
+                  Action:
+                    - "codecommit:GetBranch"
+                    - "codecommit:GetCommit"
+                    - "codecommit:UploadArchive"
+                    - "codecommit:GetUploadArchiveStatus"
+                    - "codecommit:CancelUploadArchive"
+                  Resource: !GetAtt CodeCommitRepository.Arn
+                - !Ref AWS::NoValue
               - Effect: "Allow"
                 Action:
                   - "s3:PutObject"
@@ -630,14 +633,17 @@ Resources:
                   - "logs:*"
                   - "cloudformation:ValidateTemplate"
                 Resource: "*"
-              - Effect: "Allow"
-                Action:
-                  - "codecommit:GetBranch"
-                  - "codecommit:GetCommit"
-                  - "codecommit:UploadArchive"
-                  - "codecommit:GetUploadArchiveStatus"
-                  - "codecommit:CancelUploadArchive"
-                Resource: !GetAtt CodeCommitRepository.Arn
+              - !If
+                - CodeCommitRepo
+                - Effect: "Allow"
+                  Action:
+                    - "codecommit:GetBranch"
+                    - "codecommit:GetCommit"
+                    - "codecommit:UploadArchive"
+                    - "codecommit:GetUploadArchiveStatus"
+                    - "codecommit:CancelUploadArchive"
+                  Resource: !GetAtt CodeCommitRepository.Arn
+                - !Ref AWS::NoValue
               - Effect: "Allow"
                 Action:
                   - "s3:PutObject"
