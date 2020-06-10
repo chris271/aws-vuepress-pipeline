@@ -1,21 +1,22 @@
-# VuePress Starter Kit
+# VuePress CodePipeline Pipeline Sample
 
-A sample project to let you see what makes VuePress so great!
+Sample project to create an AWS CodePipeline pipeline to deploy a static VuePress website.
 
 ## Getting Setup
 
-### Requirements
+### Prerequisites
 
 1.  [Node.js](https://nodejs.org/en/) v8.0+
 2.  [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-install.html)
 3.  [Default AWS Credential Profile](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-profiles.html)
 
-### Instructions
+### Local Setup Instructions
 
-1.  [Clone this repo]()
-2.  Run `yarn` or `npm install`
-3.  Run `yarn dev` or `npm run dev`
+1.  [Clone this repo](https://github.com/chris271/aws-vuepress-pipeline)
+2.  Run `yarn install` or `npm install`
+3.  Run `yarn run dev` or `npm run dev` to run the VuePress site locally.
 
 ## Helpful links
 
 This site is built on [VuePress](https://vuepress.vuejs.org/). Please see their [Guide](https://vuepress.vuejs.org/guide/) for more information on how it works.
+The provided VuePress sample is based on [this repo](https://github.com/bencodezen/vuepress-starter-kit) with adjustments.

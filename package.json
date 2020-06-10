@@ -1,7 +1,7 @@
 {
-  "name": "vuepress-starter-kit",
+  "name": "aws-vuepress-pipeline",
   "version": "1.0.0",
-  "description": "A sample project to let you see what makes VuePress so great! ",
+  "description": "Sample project to create an AWS CodePipeline pipeline to deploy a static VuePress website.",
   "main": "index.js",
   "scripts": {
     "dev": "vuepress dev docs",
@@ -10,25 +10,27 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/bencodezen/vuepress-starter-kit.git"
+    "url": "git+https://github.com/chris271/aws-vuepress-pipeline.git"
   },
   "keywords": [
     "vuejs",
     "vuepress",
     "documentation",
-    "static-site-gen"
+    "static-site-gen",
+    "aws",
+    "code-pipeline"
   ],
-  "author": "Ben Hong <bencodezen@gmail.com>",
+  "author": "Ben Hong <christopher.butler007@gmail.com>",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/bencodezen/vuepress-starter-kit/issues"
+    "url": "https://github.com/chris271/aws-vuepress-pipeline/issues"
   },
-  "homepage": "https://github.com/bencodezen/vuepress-starter-kit#readme",
+  "homepage": "https://github.com/chris271/aws-vuepress-pipeline#readme",
   "dependencies": {
-    "global": "^4.3.2",
-    "vuepress": "^1.2.0"
+    "global": "^4.4.0",
+    "vuepress": "^1.5.1"
   },
   "devDependencies": {
-    "@vuepress/plugin-active-header-links": "^1.0.0-rc.1"
+    "@vuepress/plugin-active-header-links": "^1.5.1"
   }
 }
