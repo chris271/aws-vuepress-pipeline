@@ -567,7 +567,9 @@ Resources:
                   - "codebuild:StartBuild"
                   - "codebuild:BatchGetBuilds"
                   - "codebuild:StopBuild"
-                Resource: !GetAtt PipelineCodeBuildProject.Arn
+                Resource:
+                  - !GetAtt PipelineCodeBuildProject.Arn
+                  - !GetAtt PipelineCodeBuildTestProject.Arn
               - !If
                 - CodeCommitRepo
                 - Effect: "Allow"
