@@ -361,3 +361,4 @@ CloudFormation [dev resources](https://aws.amazon.com/cloudformation/resources/)
 This site is built on [VuePress](https://vuepress.vuejs.org/). Please see their [Guide](https://vuepress.vuejs.org/guide/) for more information on how it works. 
 
 The provided VuePress sample is based on [this repository](https://github.com/bencodezen/vuepress-starter-kit) with adjustments.
+
