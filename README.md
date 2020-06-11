@@ -354,7 +354,7 @@ Invalidating the cache after deployment will refresh the site with new changes.
 
 ## Helpful links
 
-CodePipeline [tutorials](https://docs.aws.amazon.com/codepipeline/latest/userguide/tutorials.html).
+CodePipeline [tutorials](https://docs.aws.amazon.com/codepipeline/latest/userguide/tutorials.html) and [providers reference](https://docs.aws.amazon.com/codepipeline/latest/userguide/reference-pipeline-structure.html).
 
 CloudFormation [dev resources](https://aws.amazon.com/cloudformation/resources/).
 
